@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
             '--print', 'title',
             '--no-warnings',
             '--no-playlist',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             url
         ]);
 
@@ -86,6 +87,7 @@ export async function GET(req: NextRequest) {
             '--no-warnings',
             '--no-check-certificates',
             '--force-overwrites',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             '--ffmpeg-location', ffmpegPath
         ];
 
