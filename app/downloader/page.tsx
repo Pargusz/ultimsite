@@ -33,7 +33,10 @@ export default function DownloaderPage() {
         try {
             const res = await fetch(`/api/ytdl?url=${encodeURIComponent(url)}`);
             const data = await res.json();
-            if (!res.ok) throw new Error(data.error || 'Video bilgileri alınamadı');
+            if (!res.ok) {
+                const errorMessage = data.details || data.error || 'Video bilgileri alınamadı';
+                throw new Error(errorMessage);
+            }
             setInfo(data);
         } catch (err: any) {
             setError(err.message);
@@ -118,8 +121,8 @@ export default function DownloaderPage() {
                                             key={format.itag}
                                             onClick={() => setSelectedFormat(format.itag)}
                                             className={`p-4 rounded-xl text-left border transition-all ${selectedFormat === format.itag
-                                                    ? 'bg-primary border-primary text-white shadow-lg shadow-primary/20'
-                                                    : 'bg-black/20 border-white/5 hover:border-white/10 hover:bg-black/40'
+                                                ? 'bg-primary border-primary text-white shadow-lg shadow-primary/20'
+                                                : 'bg-black/20 border-white/5 hover:border-white/10 hover:bg-black/40'
                                                 }`}
                                         >
                                             <div className="font-bold flex items-center gap-2">

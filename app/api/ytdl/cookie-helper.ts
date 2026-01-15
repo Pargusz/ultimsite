@@ -10,6 +10,7 @@ export const getCookieFilePath = (): string | null => {
 
     // If no cookies are provided, return null to skip --cookies arg
     if (!cookiesContent || cookiesContent.trim() === '') {
+        console.warn('YTDL: No YOUTUBE_COOKIES environment variable found.');
         return null;
     }
 
@@ -20,6 +21,7 @@ export const getCookieFilePath = (): string | null => {
     // For simplicity, we just overwrite to ensure freshness if env var changed.
     try {
         fs.writeFileSync(cookiePath, cookiesContent, 'utf-8');
+        console.log(`YTDL: Cookies written to ${cookiePath}`);
         return cookiePath;
     } catch (error) {
         console.error('Failed to write cookie file:', error);
