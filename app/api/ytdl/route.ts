@@ -1,7 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server';
-import ytdl from '@distube/ytdl-core';
+import path from 'path';
+import fs from 'fs';
+import { spawn } from 'child_process';
 
 export const dynamic = 'force-dynamic';
+
+// Helper to run command
+const runCommand = (cmd: string, args: string[]) => {
+    return new Promise<{ stdout: string, stderr: string }>((resolve, reject) => {
+        const proc = spawn(cmd, args);
+        let stdout = '';
+        let stderr = '';
+        proc.stdout.on('data', d => stdout += d.toString());
+        proc.stderr.on('data', d => stderr += d.toString());
+        proc.on('close', code => {
+            if (code === 0) resolve({ stdout, stderr });
+            else reject(new Error(`Command failed: ${stderr || 'Unknown error'}`));
+        });
+        proc.on('error', reject);
+    });
+};
 
 export async function GET(req: NextRequest) {
     const url = req.nextUrl.searchParams.get('url');
@@ -11,104 +29,98 @@ export async function GET(req: NextRequest) {
     }
 
     try {
-        if (!ytdl.validateURL(url)) {
-            return NextResponse.json({ error: 'Geçersiz YouTube bağlantısı' }, { status: 400 });
+        // 1. Resolve yt-dlp path
+        let ytDlpPath = path.resolve('./bin/yt-dlp');
+        if (!fs.existsSync(ytDlpPath)) {
+            ytDlpPath = 'yt-dlp'; // System fallback (Docker)
         }
 
-        const info = await ytdl.getInfo(url, {
-            requestOptions: {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-                    'Accept-Language': 'en-US,en;q=0.9',
-                }
-            }
-        });
+        // 2. Fetch Metadata using yt-dlp
+        // --dump-json provides all info in a structured format
+        // --no-playlist prevents processing entire playlists if a playlist URL is provided
+        const args = [
+            '--dump-json',
+            '--no-playlist',
+            '--no-warnings',
+            '--no-check-certificates',
+            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            url
+        ];
 
-        // 1. Get standard formats (Video + Audio) - usually max 720p
-        const standardFormats = ytdl.filterFormats(info.formats, 'videoandaudio');
+        const { stdout } = await runCommand(ytDlpPath, args);
+        const info = JSON.parse(stdout);
 
-        // 2. Get high quality video-only formats (1080p, 4K, etc.)
-        // Strict preference for MP4
-        const videoOnlyFormats = ytdl.filterFormats(info.formats, 'videoonly');
-        const highResFormats = videoOnlyFormats.filter(f =>
-            f.container === 'mp4' && // Only MP4 for high res to reduce clutter
-            ((f.height && f.height > 720) || (f.qualityLabel && (f.qualityLabel.includes('1080p') || f.qualityLabel.includes('1440p') || f.qualityLabel.includes('2160p') || f.qualityLabel.includes('4320p'))))
-        );
+        // 3. Process Formats
+        const formats = info.formats || [];
 
-        // 3. Get Audio formats
-        // STRICTLY only M4A (AAC) to simulate "MP3" feel. WebM is often unsupported.
-        const audioFormats = ytdl.filterFormats(info.formats, 'audioonly').filter(f => f.container === 'mp4');
+        // Filter and map formats similar to before
+        const relevantFormats = formats
+            .filter((f: any) => {
+                // Keep only mp4 and clean audio
+                // Filter out m3u8 (HLS) streams which are hard to download directly without ffmpeg re-encoding
+                return f.protocol === 'https' || f.protocol === 'http';
+            })
+            .map((f: any) => {
+                const hasVideo = f.vcodec !== 'none';
+                const hasAudio = f.acodec !== 'none';
+                const container = f.ext;
 
-        // Combine relevant formats
-        const allFormats = [...standardFormats, ...highResFormats, ...audioFormats];
-
-        // Filter duplicates
-        const uniqueFormatsMap = new Map();
-
-        allFormats.forEach(f => {
-            const isAudioOnly = !f.hasVideo && f.hasAudio;
-            const isVideoOnly = f.hasVideo && !f.hasAudio;
-
-            // Skip WebM for standard video too if we have mp4 preference (though 720p usually has both)
-            if (f.container === 'webm') return;
-
-            let key;
-            if (isAudioOnly) {
-                key = 'audio-best'; // Only keep ONE best audio
-            } else {
-                // Video: Group by quality (e.g. 1080p, 720p)
-                // We merge "sessiz" status into the key so we don't duplicate logic unnecessarily, 
-                // but since we only want MP4, we can just key by qualityLabel.
-                key = f.qualityLabel;
-            }
-
-            if (!uniqueFormatsMap.has(key)) {
-                uniqueFormatsMap.set(key, f);
-            } else {
-                const existing = uniqueFormatsMap.get(key);
-                // Always prefer higher bitrate
-                if ((f.bitrate || 0) > (existing.bitrate || 0)) {
-                    uniqueFormatsMap.set(key, f);
-                }
-            }
-        });
-
-        // Convert options to easy UI format
-        const relevantFormats = Array.from(uniqueFormatsMap.values())
-            .map(f => {
-                let qualityLabel = f.qualityLabel || 'Audio';
-                let typeLabel = '';
-
-                if (f.hasVideo) {
-                    typeLabel = f.qualityLabel;
-                    if (!f.hasAudio) typeLabel += ' (Sessiz)';
+                // Determine Quality Label
+                let qualityLabel = 'Audio';
+                if (hasVideo) {
+                    qualityLabel = f.height ? `${f.height}p` : 'Video';
+                    if (!hasAudio) qualityLabel += ' (Sessiz)';
                 } else {
-                    // Force label to be "Ses (MP3)" for user satisfaction, although technically M4A
-                    typeLabel = 'Ses (MP3)';
+                    qualityLabel = 'Ses (MP3)'; // Start with generic label
                 }
 
                 return {
-                    itag: f.itag,
-                    qualityLabel: typeLabel,
-                    container: f.container,
-                    hasAudio: f.hasAudio,
-                    hasVideo: f.hasVideo,
-                    contentLength: f.contentLength,
-                    isHighRes: f.height && f.height > 720
+                    itag: f.format_id, // yt-dlp uses format_id string/number
+                    qualityLabel,
+                    container,
+                    hasAudio,
+                    hasVideo,
+                    contentLength: f.filesize || f.filesize_approx || 0,
+                    isHighRes: f.height && f.height > 720,
+                    height: f.height
                 };
             })
-            // Sort: Video (Desc Quality) > Audio
-            .sort((a, b) => {
+            // Filter duplicates roughly
+            .reduce((acc: any[], curr: any) => {
+                // Logic: if we already have this qualityLabel (e.g. 1080p), keep the one with audio if possible, or higher filesize
+                const existingIndex = acc.findIndex(i => i.qualityLabel === curr.qualityLabel);
+                if (existingIndex > -1) {
+                    const existing = acc[existingIndex];
+                    // If current has audio and existing doesn't, replace
+                    if (curr.hasAudio && !existing.hasAudio) {
+                        acc[existingIndex] = curr;
+                    }
+                    // Or if both same audio status, prefer larger size (usually better quality)
+                    else if (curr.hasAudio === existing.hasAudio && curr.contentLength > existing.contentLength) {
+                        acc[existingIndex] = curr;
+                    }
+                } else {
+                    acc.push(curr);
+                }
+                return acc;
+            }, [])
+            .filter((f: any) => {
+                // Final cleanup: Only defined containers
+                return ['mp4', 'm4a', 'webm'].includes(f.container);
+            })
+            .sort((a: any, b: any) => {
+                // Sort: Video (Desc Quality) > Audio
                 if (a.hasVideo && !b.hasVideo) return -1;
                 if (!a.hasVideo && b.hasVideo) return 1;
+                if (a.hasVideo && b.hasVideo) return (b.height || 0) - (a.height || 0);
                 return 0;
             });
 
+        // 4. Return simplified response
         return NextResponse.json({
-            title: info.videoDetails.title,
-            thumbnail: info.videoDetails.thumbnails.pop()?.url,
-            duration: new Date(parseInt(info.videoDetails.lengthSeconds) * 1000).toISOString().substr(11, 8),
+            title: info.title,
+            thumbnail: info.thumbnail,
+            duration: info.duration_string, // yt-dlp gives formatted duration
             formats: relevantFormats
         });
 
