@@ -3,6 +3,8 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 
+export const dynamic = 'force-dynamic';
+
 // Helper to run spawning properly in Promise
 const runCommand = (cmd: string, args: string[]) => {
     return new Promise<{ stdout: string, stderr: string }>((resolve, reject) => {
