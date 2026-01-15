@@ -22,7 +22,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED 1
 
 # Copy PDF worker to public folder so it can be served locally
-RUN cp node_modules/pdfjs-dist/build/pdf.worker.min.mjs public/pdf.worker.min.mjs
+RUN cp node_modules/pdfjs-dist/build/pdf.worker.min.js public/pdf.worker.min.js
 
 RUN npm run build
 
