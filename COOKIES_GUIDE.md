@@ -14,6 +14,7 @@ You need a browser extension to export cookies in "Netscape" format.
 
 *   **Chrome/Edge**: [Get cookies.txt LOCALLY](https://chrome.google.com/webstore/detail/get-cookiestxt-locally/cclelndahbckbenkjhflpdbgdldlbecc)
 *   **Firefox**: [cookies.txt](https://addons.mozilla.org/en-US/firefox/addon/cookies-txt/)
+*   **Safari**: Safari için "Cookie-Editor" veya benzeri bir eklenti mağazada bulunabilir, ancak en kolayı **geçici olarak Chrome veya Firefox kurup** oradan almaktır. Eğer Safari zorunluysa, [Cookie-Editor](https://apps.apple.com/us/app/cookie-editor/id1535783308) uygulamasını deneyebilirsin (Netscape formatında dışarı aktardığından emin ol).
 
 ## Step 2: Export Cookies
 

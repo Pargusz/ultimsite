@@ -65,9 +65,9 @@ export async function GET(req: NextRequest) {
         // Filter and map formats similar to before
         const relevantFormats = formats
             .filter((f: any) => {
-                // Keep only mp4 and clean audio
-                // Filter out m3u8 (HLS) streams which are hard to download directly without ffmpeg re-encoding
-                return f.protocol === 'https' || f.protocol === 'http';
+                // yt-dlp can handle most protocols (including m3u8/dash) during download since we use the binary.
+                // We just check if it's a valid format object.
+                return f.format_id;
             })
             .map((f: any) => {
                 const hasVideo = f.vcodec !== 'none';
