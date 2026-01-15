@@ -12,6 +12,7 @@ const nextConfig = {
         config.resolve.alias.canvas = false;
         return config;
     },
+    output: 'standalone',
 };
 
 export default nextConfig;
