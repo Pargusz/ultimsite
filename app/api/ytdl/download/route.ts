@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
@@ -84,8 +85,10 @@ export async function GET(req: NextRequest) {
         const filename = `${videoTitle}.${extension}`;
 
         // 4. Download
-        const tempDir = path.resolve('./tmp');
-        if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+        // Use system temp dir to avoid permission issues in production (e.g. Render)
+        const tempDir = os.tmpdir();
+        // No need to mkdirSync for system temp dir usually, but we can try-catch it if we want a subdir
+        // For simplicity, just use tmpdir directly.
 
         const uniqueId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
         const outputTemplate = path.join(tempDir, `dl-${uniqueId}.%(ext)s`);
