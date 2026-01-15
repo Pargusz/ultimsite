@@ -29,9 +29,11 @@ export async function GET(req: NextRequest) {
 
     try {
         // 1. Resolve Tools
-        const ytDlpPath = path.resolve('./bin/yt-dlp');
+        // 1. Resolve Tools
+        let ytDlpPath = path.resolve('./bin/yt-dlp');
         if (!fs.existsSync(ytDlpPath)) {
-            throw new Error('yt-dlp binary missing. Server needs restart/setup.');
+            // Fallback to system-wide installation (Docker)
+            ytDlpPath = 'yt-dlp';
         }
 
         let ffmpegPath = null;
