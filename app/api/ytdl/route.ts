@@ -3,6 +3,8 @@ import path from 'path';
 import fs from 'fs';
 import { spawn } from 'child_process';
 
+import { getCookieFilePath } from './cookie-helper';
+
 export const dynamic = 'force-dynamic';
 
 // Helper to run command
@@ -35,7 +37,10 @@ export async function GET(req: NextRequest) {
             ytDlpPath = 'yt-dlp'; // System fallback (Docker)
         }
 
-        // 2. Fetch Metadata using yt-dlp
+        // 2. Prepare Cookies
+        const cookiePath = getCookieFilePath();
+
+        // 3. Fetch Metadata using yt-dlp
         // --dump-json provides all info in a structured format
         // --no-playlist prevents processing entire playlists if a playlist URL is provided
         const args = [
@@ -46,6 +51,10 @@ export async function GET(req: NextRequest) {
             '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             url
         ];
+
+        if (cookiePath) {
+            args.push('--cookies', cookiePath);
+        }
 
         const { stdout } = await runCommand(ytDlpPath, args);
         const info = JSON.parse(stdout);
@@ -126,6 +135,18 @@ export async function GET(req: NextRequest) {
 
     } catch (error: any) {
         console.error('YTDL Error:', error);
-        return NextResponse.json({ error: error.message || 'Video bilgileri alınamadı' }, { status: 500 });
+
+        const errorMessage = error.message || '';
+
+        // Check for specific YouTube bot detection / cookie required errors
+        if (errorMessage.includes('Sign in to confirm') || errorMessage.includes('cookies')) {
+            return NextResponse.json({
+                error: 'Sunucu doğrulama hatası (Bot/Cookie)',
+                details: 'YouTube bot tespiti yaptı. Lütfen "COOKIES_GUIDE.md" dosyasındaki adımları takip ederek YOUTUBE_COOKIES ayarını yapın.',
+                requiresCookies: true
+            }, { status: 429 }); // 429 Too Many Requests is appropriate for rate limiting/blocking mechanism
+        }
+
+        return NextResponse.json({ error: errorMessage || 'Video bilgileri alınamadı' }, { status: 500 });
     }
 }

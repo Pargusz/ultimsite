@@ -3,10 +3,13 @@ import fs from 'fs';
 import path from 'path';
 import { spawn } from 'child_process';
 
+import { getCookieFilePath } from '../cookie-helper';
+
 export const dynamic = 'force-dynamic';
 
 // Helper to run spawning properly in Promise
 const runCommand = (cmd: string, args: string[]) => {
+    // ... existing runCommand impl ...
     return new Promise<{ stdout: string, stderr: string }>((resolve, reject) => {
         const proc = spawn(cmd, args);
         let stdout = '';
@@ -28,9 +31,8 @@ export async function GET(req: NextRequest) {
     if (!url) {
         return NextResponse.json({ error: 'URL gerekli' }, { status: 400 });
     }
-
     try {
-        // 1. Resolve Tools
+
         // 1. Resolve Tools
         let ytDlpPath = path.resolve('./bin/yt-dlp');
         if (!fs.existsSync(ytDlpPath)) {
@@ -38,6 +40,7 @@ export async function GET(req: NextRequest) {
             ytDlpPath = 'yt-dlp';
         }
 
+        // ... ffmpeg resolution ...
         let ffmpegPath = null;
         try { ffmpegPath = (await import('ffmpeg-static')).default; } catch (e) { }
 
@@ -51,16 +54,25 @@ export async function GET(req: NextRequest) {
         }
         if (!ffmpegPath) ffmpegPath = 'ffmpeg'; // system fallback
 
+        // Prepare Cookies (Get path once)
+        const cookiePath = getCookieFilePath();
+
         // 2. Get Title (Fast)
         // Execute binary directly (macOS executable)
         // Args: [--print, title, ...]
-        const titleResult = await runCommand(ytDlpPath, [
+        const titleArgs: string[] = [
             '--print', 'title',
             '--no-warnings',
             '--no-playlist',
             '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             url
-        ]);
+        ];
+
+        if (cookiePath) {
+            titleArgs.push('--cookies', cookiePath);
+        }
+
+        const titleResult = await runCommand(ytDlpPath, titleArgs);
 
         const videoTitle = titleResult.stdout.trim().replace(/[^\w\s-]/gi, '') || 'video';
 
@@ -80,7 +92,7 @@ export async function GET(req: NextRequest) {
 
         // Construct Args for main download
         // IMPORTANT: ytDlpPath is the COMMAND, not an ARG
-        const args = [
+        const args: string[] = [
             url,
             '-o', outputTemplate,
             '--no-playlist',
@@ -90,6 +102,10 @@ export async function GET(req: NextRequest) {
             '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             '--ffmpeg-location', ffmpegPath
         ];
+
+        if (cookiePath) {
+            args.push('--cookies', cookiePath);
+        }
 
         if (isAudio) {
             // === MP3 MODE ===
@@ -149,9 +165,21 @@ export async function GET(req: NextRequest) {
 
     } catch (error: any) {
         console.error('Final Download Error:', error);
+
+        const errorMessage = error.message || '';
+
+        // Check for specific YouTube bot detection / cookie required errors
+        if (errorMessage.includes('Sign in to confirm') || errorMessage.includes('cookies')) {
+            return NextResponse.json({
+                error: 'İndirme Başarısız (Doğrulama Gerekli)',
+                details: 'YouTube sunucuyu engelledi. YOUTUBE_COOKIES ayarı gerekli. Lütfen COOKIES_GUIDE.md dosyasını okuyun.',
+                requiresCookies: true
+            }, { status: 429 });
+        }
+
         return NextResponse.json({
             error: 'İşlem Başarısız',
-            details: error.message
+            details: errorMessage
         }, { status: 500 });
     }
 }
