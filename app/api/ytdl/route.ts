@@ -125,6 +125,19 @@ export async function GET(req: NextRequest) {
                 return 0;
             });
 
+        // Explicitly add "MP3 (En İyi Ses)" option
+        // This corresponds to 'audio-best' logic in download/route.ts
+        relevantFormats.push({
+            itag: 'audio-best',
+            qualityLabel: 'MP3 (En İyi Ses)',
+            container: 'mp3',
+            hasAudio: true,
+            hasVideo: false,
+            contentLength: 0, // Unknown/Calculate on fly
+            isHighRes: false,
+            height: 0
+        });
+
         // 4. Return simplified response
         return NextResponse.json({
             title: info.title,
