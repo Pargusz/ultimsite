@@ -28,6 +28,7 @@ const runCommand = (cmd: string, args: string[]) => {
 export async function GET(req: NextRequest) {
     const url = req.nextUrl.searchParams.get('url');
     const itag = req.nextUrl.searchParams.get('itag');
+    const titleParam = req.nextUrl.searchParams.get('title');
 
     if (!url) {
         return NextResponse.json({ error: 'URL gerekli' }, { status: 400 });
@@ -75,24 +76,24 @@ export async function GET(req: NextRequest) {
         // Prepare Cookies (Get path once)
         const cookiePath = getCookieFilePath();
 
-        // 2. Get Title (Fast)
-        // Execute binary directly (macOS executable)
-        // Args: [--print, title, ...]
-        const titleArgs: string[] = [
-            '--print', 'title',
-            '--no-warnings',
-            '--no-playlist',
-            '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            url
-        ];
+        let videoTitle = titleParam ? titleParam.replace(/[^\w\s-]/gi, '') : '';
 
-        if (cookiePath) {
-            titleArgs.push('--cookies', cookiePath);
+        if (!videoTitle) {
+            const titleArgs: string[] = [
+                '--get-title',
+                '--no-warnings',
+                '--no-playlist',
+                '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                url
+            ];
+
+            if (cookiePath) {
+                titleArgs.push('--cookies', cookiePath);
+            }
+
+            const titleResult = await runCommand(ytDlpPath, titleArgs);
+            videoTitle = titleResult.stdout.trim().replace(/[^\w\s-]/gi, '') || 'video';
         }
-
-        const titleResult = await runCommand(ytDlpPath, titleArgs);
-
-        const videoTitle = titleResult.stdout.trim().replace(/[^\w\s-]/gi, '') || 'video';
 
         // 3. Determine Mode (Audio or Video)
         const isAudio = itag === 'audio-best' || itag === '140' || itag === '251';
@@ -120,7 +121,11 @@ export async function GET(req: NextRequest) {
             '--no-check-certificates',
             '--force-overwrites',
             '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            '--ffmpeg-location', ffmpegPath
+            '--ffmpeg-location', ffmpegPath,
+            '--concurrent-fragments', '8',
+            '--buffer-size', '16K',
+            '--no-call-home',
+            '--no-playlist'
         ];
 
         if (cookiePath) {

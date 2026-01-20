@@ -46,10 +46,10 @@ export default function DownloaderPage() {
     };
 
     const handleDownload = () => {
-        if (!selectedFormat || !url) return;
+        if (!selectedFormat || !url || !info) return;
         setDownloading(true);
 
-        const downloadUrl = `/api/ytdl/download?url=${encodeURIComponent(url)}&itag=${selectedFormat}`;
+        const downloadUrl = `/api/ytdl/download?url=${encodeURIComponent(url)}&itag=${selectedFormat}&title=${encodeURIComponent(info.title)}`;
         window.location.href = downloadUrl;
         setTimeout(() => setDownloading(false), 2000);
     };

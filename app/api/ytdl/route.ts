@@ -40,14 +40,15 @@ export async function GET(req: NextRequest) {
         // 2. Prepare Cookies
         const cookiePath = getCookieFilePath();
 
-        // 3. Fetch Metadata using yt-dlp
-        // --dump-json provides all info in a structured format
-        // --no-playlist prevents processing entire playlists if a playlist URL is provided
+        // 3. Fetch Metadata using yt-dlp with speed flags
         const args = [
             '--dump-json',
             '--no-playlist',
+            '--flat-playlist',
             '--no-warnings',
             '--no-check-certificates',
+            '--no-call-home',
+            '--geo-bypass',
             '--user-agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             url
         ];
@@ -62,29 +63,23 @@ export async function GET(req: NextRequest) {
         // 3. Process Formats
         const formats = info.formats || [];
 
-        // Filter and map formats similar to before
         const relevantFormats = formats
-            .filter((f: any) => {
-                // yt-dlp can handle most protocols (including m3u8/dash) during download since we use the binary.
-                // We just check if it's a valid format object.
-                return f.format_id;
-            })
+            .filter((f: any) => f.format_id)
             .map((f: any) => {
                 const hasVideo = f.vcodec !== 'none';
                 const hasAudio = f.acodec !== 'none';
                 const container = f.ext;
 
-                // Determine Quality Label
                 let qualityLabel = 'Audio';
                 if (hasVideo) {
                     qualityLabel = f.height ? `${f.height}p` : 'Video';
                     if (!hasAudio) qualityLabel += ' (Sessiz)';
                 } else {
-                    qualityLabel = 'Ses (MP3)'; // Start with generic label
+                    qualityLabel = 'Ses (MP3)';
                 }
 
                 return {
-                    itag: f.format_id, // yt-dlp uses format_id string/number
+                    itag: f.format_id,
                     qualityLabel,
                     container,
                     hasAudio,
@@ -94,17 +89,13 @@ export async function GET(req: NextRequest) {
                     height: f.height
                 };
             })
-            // Filter duplicates roughly
             .reduce((acc: any[], curr: any) => {
-                // Logic: if we already have this qualityLabel (e.g. 1080p), keep the one with audio if possible, or higher filesize
                 const existingIndex = acc.findIndex(i => i.qualityLabel === curr.qualityLabel);
                 if (existingIndex > -1) {
                     const existing = acc[existingIndex];
-                    // If current has audio and existing doesn't, replace
                     if (curr.hasAudio && !existing.hasAudio) {
                         acc[existingIndex] = curr;
                     }
-                    // Or if both same audio status, prefer larger size (usually better quality)
                     else if (curr.hasAudio === existing.hasAudio && curr.contentLength > existing.contentLength) {
                         acc[existingIndex] = curr;
                     }
@@ -113,53 +104,34 @@ export async function GET(req: NextRequest) {
                 }
                 return acc;
             }, [])
-            .filter((f: any) => {
-                // Final cleanup: Only defined containers
-                return ['mp4', 'm4a', 'webm'].includes(f.container);
-            })
+            .filter((f: any) => ['mp4', 'm4a', 'webm'].includes(f.container))
             .sort((a: any, b: any) => {
-                // Sort: Video (Desc Quality) > Audio
                 if (a.hasVideo && !b.hasVideo) return -1;
                 if (!a.hasVideo && b.hasVideo) return 1;
                 if (a.hasVideo && b.hasVideo) return (b.height || 0) - (a.height || 0);
                 return 0;
             });
 
-        // Explicitly add "MP3 (En İyi Ses)" option
-        // This corresponds to 'audio-best' logic in download/route.ts
         relevantFormats.push({
             itag: 'audio-best',
             qualityLabel: 'MP3 (En İyi Ses)',
             container: 'mp3',
             hasAudio: true,
             hasVideo: false,
-            contentLength: 0, // Unknown/Calculate on fly
+            contentLength: 0,
             isHighRes: false,
             height: 0
         });
 
-        // 4. Return simplified response
         return NextResponse.json({
             title: info.title,
             thumbnail: info.thumbnail,
-            duration: info.duration_string, // yt-dlp gives formatted duration
+            duration: info.duration_string,
             formats: relevantFormats
         });
 
     } catch (error: any) {
         console.error('YTDL Error:', error);
-
-        const errorMessage = error.message || '';
-
-        // Check for specific YouTube bot detection / cookie required errors
-        if (errorMessage.includes('Sign in to confirm') || errorMessage.includes('cookies')) {
-            return NextResponse.json({
-                error: 'Sunucu doğrulama hatası (Bot/Cookie)',
-                details: 'YouTube bot tespiti yaptı. Lütfen "COOKIES_GUIDE.md" dosyasındaki adımları takip ederek YOUTUBE_COOKIES ayarını yapın.',
-                requiresCookies: true
-            }, { status: 429 }); // 429 Too Many Requests is appropriate for rate limiting/blocking mechanism
-        }
-
-        return NextResponse.json({ error: errorMessage || 'Video bilgileri alınamadı' }, { status: 500 });
+        return NextResponse.json({ error: error.message || 'Video bilgileri alınamadı' }, { status: 500 });
     }
 }
