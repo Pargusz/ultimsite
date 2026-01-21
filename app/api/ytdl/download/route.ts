@@ -98,18 +98,14 @@ export async function GET(req: NextRequest) {
         // 3. Determine Mode (Audio or Video)
         const isAudio = itag === 'audio-best' || itag === '140' || itag === '251';
 
-        const extension = isAudio ? 'mp3' : 'mp4';
-        const contentType = isAudio ? 'audio/mpeg' : 'video/mp4';
-        const filename = `${videoTitle}.${extension}`;
+        const defaultExtension = isAudio ? 'mp3' : 'mp4';
+        const defaultContentType = isAudio ? 'audio/mpeg' : 'video/mp4';
 
         // 4. Download
-        // Use system temp dir to avoid permission issues in production (e.g. Render)
+        // Use system temp dir
         const tempDir = os.tmpdir();
-        // No need to mkdirSync for system temp dir usually, but we can try-catch it if we want a subdir
-        // For simplicity, just use tmpdir directly.
-
-        const uniqueId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        const outputTemplate = path.join(tempDir, `dl-${uniqueId}.%(ext)s`);
+        const uniqueId = `dl-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+        const outputTemplate = path.join(tempDir, `${uniqueId}.%(ext)s`);
 
         // Construct Args for main download
         // IMPORTANT: ytDlpPath is the COMMAND, not an ARG
@@ -152,19 +148,38 @@ export async function GET(req: NextRequest) {
         // Execute binary directly
         await runCommand(ytDlpPath, args);
 
-        // Find the actual output file
-        const expectedOutput = path.join(tempDir, `dl-${uniqueId}.${extension}`);
+        // 5. Find the actual output file (yt-dlp might change extension)
+        const files = fs.readdirSync(tempDir);
+        const downloadedFile = files.find(f => f.startsWith(uniqueId));
 
-        if (!fs.existsSync(expectedOutput)) {
+        if (!downloadedFile) {
             throw new Error('Dosya indirme başarısız (Dosya bulunamadı)');
         }
 
-        // 5. Serve
-        const stats = fs.statSync(expectedOutput);
-        const fileStream = fs.createReadStream(expectedOutput);
+        const actualPath = path.join(tempDir, downloadedFile);
+        const actualExt = path.extname(downloadedFile).toLowerCase();
+
+        // Final filename for the user
+        const finalExtension = actualExt ? actualExt.substring(1) : defaultExtension;
+        const finalFilename = `${videoTitle || 'video'}.${finalExtension}`;
+
+        const mimeTypes: Record<string, string> = {
+            'mp3': 'audio/mpeg',
+            'mp4': 'video/mp4',
+            'm4a': 'audio/mp4',
+            'webm': 'video/webm',
+            'wav': 'audio/wav'
+        };
+        const contentType = mimeTypes[finalExtension] || defaultContentType;
+
+        // 6. Serve
+        const stats = fs.statSync(actualPath);
+        const fileStream = fs.createReadStream(actualPath);
 
         const headers = new Headers();
-        headers.set('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`);
+        // Modern and compatible Content-Disposition
+        const encodedFilename = encodeURIComponent(finalFilename).replace(/['()]/g, escape).replace(/\*/g, '%2A');
+        headers.set('Content-Disposition', `attachment; filename="${finalFilename.replace(/"/g, '\\"')}"; filename*=UTF-8''${encodedFilename}`);
         headers.set('Content-Type', contentType);
         headers.set('Content-Length', stats.size.toString());
 
@@ -173,16 +188,16 @@ export async function GET(req: NextRequest) {
                 fileStream.on('data', chunk => controller.enqueue(chunk));
                 fileStream.on('end', () => {
                     controller.close();
-                    try { fs.unlinkSync(expectedOutput); } catch (e) { }
+                    try { fs.unlinkSync(actualPath); } catch (e) { }
                 });
                 fileStream.on('error', err => {
                     controller.error(err);
-                    try { fs.unlinkSync(expectedOutput); } catch (e) { }
+                    try { fs.unlinkSync(actualPath); } catch (e) { }
                 });
             },
             cancel() {
                 fileStream.destroy();
-                try { fs.unlinkSync(expectedOutput); } catch (e) { }
+                try { fs.unlinkSync(actualPath); } catch (e) { }
             }
         });
 
